@@ -1,180 +1,32 @@
-# mini-agent-runtime
+# Mini Agent Runtime
 
-`mini-agent-runtime` is a small Python agent runtime implemented without prebuilt agent frameworks.
+从零实现的最小可用 Agent Runtime，不依赖 LangGraph / OpenHands / OpenClaw 等现有 Agent 框架完成主流程。
 
-The runtime loop is implemented in this project. It wires together session state, context building, LLM output parsing, tool execution, and trace logging.
+Choose a language / 选择语言：
 
-## What Is Implemented
+- [中文](README.zh-CN.md)
+- [English](README.en.md)
 
-- Custom `ToolRegistry`
-- Built-in tools: calculator, search, weather, todo
-- Safe calculator using Python AST instead of `eval`
-- Parser for JSON LLM actions
-- JSON session persistence by `user_id + session_id`
-- JSONL trace logging
-- Context builder and basic context compression
-- Core `AgentRuntime` loop
-- OpenAI-compatible LLM client
-- CLI demo with real and fake modes
+## 核心能力
 
-## Project Layout
+- OpenAI-compatible 真实 LLM API
+- Tool Schema 注册机制
+- calculator / weather / todo / search 工具
+- Agent Runtime loop
+- `user_id + session_id` 级 session 隔离
+- context 压缩
+- trace 执行日志
+- FakeLLM 测试
+- pytest 97 passed
 
-```text
-agent/
-  cli.py
-  context.py
-  llm_client.py
-  parser.py
-  runtime.py
-  session.py
-  tool_registry.py
-  trace.py
-tools/
-  calculator.py
-  search.py
-  todo.py
-  weather.py
-tests/
-```
+## Core Abilities
 
-## Install
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-or:
-
-```bash
-python -m pip install -e ".[dev]"
-```
-
-## LLM Configuration
-
-The CLI automatically loads a `.env` file from the current working directory,
-then the real client reads configuration from environment variables:
-
-```text
-LLM_PROVIDER
-LLM_API_KEY
-LLM_MODEL
-LLM_BASE_URL
-LLM_TEMPERATURE
-LLM_TIMEOUT_SECONDS
-```
-
-`LLM_PROVIDER` currently supports `openai_compatible`.
-`LLM_BASE_URL` is optional and defaults to `https://api.openai.com/v1`.
-`LLM_TEMPERATURE` is optional and defaults to `0`.
-`LLM_TIMEOUT_SECONDS` is optional and defaults to `60`.
-
-Copy `.env.example` to `.env` and fill in your provider values. Do not commit
-real API keys.
-
-PowerShell example:
-
-```powershell
-$env:LLM_PROVIDER="openai_compatible"
-$env:LLM_API_KEY="your-api-key"
-$env:LLM_MODEL="your-model-name"
-$env:LLM_BASE_URL="https://api.openai.com/v1"
-$env:LLM_TEMPERATURE="0"
-```
-
-## CLI
-
-Recommended Windows / Anaconda command:
-
-```powershell
-D:\Anaconda\python.exe -m agent.cli --user alice --session window_1
-```
-
-Compatibility entry point:
-
-```powershell
-python main.py --user alice --session window_1 --llm real
-```
-
-Installed console script:
-
-```bash
-mini-agent-runtime --user user_a --session window_1
-```
-
-Fake offline mode:
-
-```bash
-python main.py --user user_a --session window_1 --llm fake
-```
-
-The older `--fake` flag is still supported as an alias for `--llm fake`.
-
-In the interactive prompt, enter one line at a time. Type `exit` or `quit` to stop.
-
-The CLI registers calculator, search, weather, and todo automatically. Sessions and traces are stored under `data/` by default.
-
-## Runtime Behavior
-
-For each user turn, the runtime:
-
-1. Loads session state.
-2. Stores the user message.
-3. Builds context from summary, todos, recent messages, recent tool results, and tool schemas.
-4. Calls the injected LLM client.
-5. Parses the model output as JSON.
-6. Executes tool calls through the registry, or returns final answers.
-7. Stores messages, tool results, session state, and trace events.
-
-The model must output JSON:
-
-```json
-{
-  "type": "tool_call",
-  "reason": "short decision note",
-  "tool_name": "calculator",
-  "arguments": {
-    "expression": "23*17"
-  }
-}
-```
-
-or:
-
-```json
-{
-  "type": "final",
-  "reason": "short decision note",
-  "answer": "The result is 391."
-}
-```
-
-`reason` is only a short debugging note. It is not a chain-of-thought field.
-
-This project does not use provider-side function calling for the core flow.
-Instead, it injects tool schemas into context, requires the model to output the
-local JSON protocol above, parses that output locally, and executes tools in the
-self-written runtime loop.
-
-## Tests
-
-```bash
-D:\Anaconda\python.exe -m pytest -p no:cacheprovider
-```
-
-The normal test suite does not call external LLM APIs. LLM and CLI behavior is tested with fake or mocked clients.
-
-## Demo Helpers
-
-```powershell
-python scripts/show_trace.py --user demo_user --session real_window --limit 20
-python scripts/show_session.py --user demo_user --session real_window
-python scripts/demo_compress.py --user demo_user --session compress_window
-```
-
-## Current Boundaries
-
-- No real web search or real weather API.
-- No vector database or RAG framework.
-- No cross-process file locking for JSON session or trace writes.
-- Todo is session-aware inside `AgentRuntime`; later this should become a general `ToolContext`.
-- OpenAI-compatible client returns raw model text only. Parsing and tool execution stay inside the local runtime.
+- OpenAI-compatible real LLM API
+- Tool Schema registry
+- calculator / weather / todo / search tools
+- Agent Runtime loop
+- `user_id + session_id` session isolation
+- context compression
+- trace execution logs
+- FakeLLM tests
+- pytest 97 passed
