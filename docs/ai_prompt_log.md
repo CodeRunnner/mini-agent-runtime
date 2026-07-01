@@ -1,59 +1,67 @@
-# AI Prompt Log
+# AI 辅助开发记录
 
-This project was developed with AI assistance, but the runtime architecture and acceptance boundaries were reviewed and confirmed by me.
+本项目使用 AI 辅助完成实现、测试和排错，但 Runtime 架构边界、模块取舍、安全策略和最终验收由我确认。
 
-## Development Flow
+## 开发过程
 
-1. Project skeleton
-   - Used AI to scaffold the Python package layout, CLI entry point, README, and initial tests.
-   - Confirmed the project would not use prebuilt agent frameworks.
+1. 项目骨架
+   - 使用 AI 辅助创建 Python 包结构、CLI 入口、README 和初始测试。
+   - 明确不使用 LangGraph、OpenHands、OpenClaw 等现成 Agent 框架接管主流程。
 
 2. ToolRegistry
-   - Used AI to implement a small registry with `register`, `get`, and schema export.
-   - Confirmed the tool interface: `name`, `description`, `parameters`, and `execute(arguments)`.
+   - 使用 AI 辅助实现轻量工具注册表，支持 `register`、`get` 和 schema export。
+   - 我确认工具接口统一为 `name`、`description`、`parameters`、`execute(arguments)`。
 
-3. Built-in tools
-   - Used AI to implement calculator, search, weather, and todo.
-   - Reviewed calculator safety and confirmed it uses AST whitelist parsing instead of direct `eval`.
-   - Confirmed tool outputs are structured dictionaries with `ok`, `result`, or `error`.
+3. 内置工具
+   - 使用 AI 辅助实现 calculator、search、weather、todo。
+   - 我重点检查 calculator 安全边界，确认没有直接 `eval`，而是使用 AST 白名单解析。
+   - 我确认工具输出使用结构化 dict，例如 `ok`、`result`、`error`。
 
 4. Parser
-   - Used AI to implement JSON action parsing for `tool_call` and `final`.
-   - Confirmed the Parser only converts raw model text into structured actions.
-   - Confirmed the Parser does not execute tools, access the registry, or guess user intent.
+   - 使用 AI 辅助实现 LLM JSON action 解析。
+   - 我确认 Parser 只负责把 raw model output 转成 `ToolCallAction` 或 `FinalAnswerAction`。
+   - Parser 不执行工具、不访问 ToolRegistry、不猜用户意图。
 
 5. SessionStore
-   - Used AI to implement `SessionState` and local JSON persistence.
-   - Confirmed state isolation by `user_id + session_id`.
-   - Confirmed dangerous path characters are sanitized before writing files.
+   - 使用 AI 辅助实现 `SessionState` 和本地 JSON 持久化。
+   - 我确认 session 以 `user_id + session_id` 隔离。
+   - 我确认 user_id/session_id 会做安全化处理，避免路径穿越。
 
 6. TraceLogger
-   - Used AI to implement append-only JSONL trace logging.
-   - Confirmed trace events include LLM output, parse action, tool calls, tool results, final answers, and errors.
+   - 使用 AI 辅助实现 JSONL trace 日志。
+   - 我确认 trace 覆盖 LLM 输出、解析动作、工具调用、工具结果、最终答案和错误。
 
 7. ContextBuilder
-   - Used AI to implement context construction from system prompt, tool schemas, summary, todos, recent messages, and recent tool results.
-   - Confirmed context excludes full trace data.
-   - Confirmed prompt constraints require JSON output and only allow a short `reason`, not full reasoning text.
+   - 使用 AI 辅助实现 context 构建和基础压缩。
+   - 我确认 context 包含 system prompt、tool schemas、summary、todos、recent messages 和 recent tool results。
+   - 我确认完整 trace 和完整 chain-of-thought 不进入 context。
 
-8. Runtime
-   - Used AI to implement the local Agent Runtime loop.
-   - Confirmed the loop is implemented directly in this project: load session, build context, call LLM, parse action, execute tools, save state, and write trace.
-   - Confirmed `max_steps` prevents infinite loops.
-   - Confirmed todo is session-aware in Runtime as an MVP adapter.
+8. AgentRuntime
+   - 使用 AI 辅助实现核心 Runtime loop。
+   - 我确认主循环由本项目自行实现：加载 session、构建 context、调用 LLM、解析 action、执行工具、保存状态、写 trace。
+   - 我确认 `max_steps` 防止无限循环。
+   - 我确认 todo 在 Runtime 中通过 MVP adapter 实现 session-aware 行为。
 
-9. LLMClient and CLI
-   - Used AI to implement an OpenAI-compatible client and interactive CLI.
-   - Confirmed API keys are read from environment variables, not committed or printed.
-   - Confirmed tests use fake or mocked clients and do not call external APIs.
+9. LLMClient 和 CLI
+   - 使用 AI 辅助实现 OpenAI-compatible LLM client 和交互式 CLI。
+   - 我确认 API key 只从环境变量或 `.env` 读取，不写入代码，不在 CLI 输出。
+   - 我确认测试使用 FakeLLM 或 mock client，不在普通 pytest 中调用真实 LLM。
 
-10. Test and fix cycle
-    - Used AI to generate and run pytest coverage after each module.
-    - Reviewed failures and accepted fixes only when they preserved the intended module boundaries.
+10. 真实 LLM demo 修复
+    - 使用 AI 辅助补充 `--verbose`，让录屏时能看到 tool_call、tool_result、final_answer。
+    - 使用 AI 辅助增加 `fallback_final`，处理工具执行后模型偶发返回短纯文本的情况。
+    - 使用 AI 辅助增强 Parser，兼容真实模型偶发输出 `{"type":"todo",...}` 或 `{"action":"list"}` 的情况。
+    - 我确认这些改动是兼容层，不改变 ToolRegistry、SessionStore、TraceLogger 的核心接口。
 
-## My Confirmation
+11. 测试和修复
+    - 使用 AI 辅助补齐 pytest 覆盖。
+    - 我根据失败用例检查边界，并只接受不破坏模块职责的修复。
+    - 当前全量测试通过：`104 passed`。
 
-- AI assisted with implementation, test generation, and debugging.
-- I confirmed the module boundaries, safety tradeoffs, and MVP scope.
-- I confirmed the final verification command and reviewed remaining limitations.
-- The project is intentionally small and transparent: no hidden framework loop, no external orchestration framework, and no real API calls in tests.
+## 我的确认
+
+- AI 辅助了实现、测试生成和问题定位。
+- 我确认了模块边界、安全取舍和 MVP 范围。
+- 我确认核心 Agent Runtime 主流程由项目自行实现。
+- 我确认项目没有把主流程交给现成 Agent 框架。
+- 我确认真实 API key 不提交，`.env` 和 `data/` 已加入 `.gitignore`。

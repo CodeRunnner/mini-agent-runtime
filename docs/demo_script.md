@@ -1,96 +1,122 @@
-# Demo Script
+# 录屏演示脚本
 
-This script is for recording or live-demoing the MVP submission.
+本文档用于录屏或现场演示 MVP 提交版本。
 
-## 1. Fake Mode Smoke Demo
+## 1. 准备环境
 
-Run:
+进入项目目录并安装依赖：
 
 ```powershell
 cd D:\myproject\mini-agent-runtime
 D:\Anaconda\python.exe -m pip install -r requirements.txt
+```
+
+清理旧 demo 数据：
+
+```powershell
+Remove-Item -Recurse -Force .\data -ErrorAction SilentlyContinue
+```
+
+运行全量测试：
+
+```powershell
+D:\Anaconda\python.exe -m pytest -p no:cacheprovider
+```
+
+录屏时说明：
+
+- 当前测试应显示 `104 passed`。
+- 普通 pytest 不会调用真实外部 LLM API。
+- Runtime 行为通过 FakeLLM 和 mock client 做确定性测试。
+
+## 2. fake 模式演示
+
+运行：
+
+```powershell
 python main.py --user demo_user --session fake_window --llm fake
 ```
 
-Type:
+输入：
 
 ```text
 hello
 quit
 ```
 
-Say:
+录屏时说明：
 
-- This is the offline CLI smoke path.
-- The CLI constructs the real local `AgentRuntime`, registers the built-in tools, and uses a fake LLM response.
-- No external API is called in fake mode.
+- 这是离线 smoke path。
+- CLI 会构造真实的本地 `AgentRuntime`，注册内置工具，并注入 FakeLLM。
+- fake 模式不会调用外部 API。
 
-## 2. Real LLM Mode Demo
+## 3. 真实 LLM 模式演示
 
-Create `.env` from `.env.example` and fill in real values:
+复制 `.env.example` 为 `.env`，填写真实 provider 配置：
 
 ```powershell
 Copy-Item .env.example .env
 notepad .env
 ```
 
-Run:
+不要在录屏里展示真实 `.env` 内容。
+
+运行：
 
 ```powershell
 python main.py --user demo_user --session real_window --llm real --verbose
 ```
 
-Try prompts such as:
+建议输入：
 
 ```text
-Calculate 23 * 17.
-Add a todo item: review the runtime trace.
-What todos do I have?
+请通过 calculator 工具计算 23 * 17 + 5，并在得到工具结果后直接返回最终答案。
+请查一下北京天气，并帮我记一个待办：明早9点根据天气决定是否带伞。
+我的待办有哪些？
 quit
 ```
 
-Say:
+录屏时说明：
 
-- The real client calls an OpenAI-compatible chat completions endpoint.
-- The CLI loads `.env` from the project root before constructing the client.
-- The model must return JSON actions.
-- The runtime parses those actions, executes local tools through `ToolRegistry`, stores session state, and writes trace events.
-- `--verbose` prints compact tool calls, tool results, final answers, and errors without dumping full LLM output.
-- The API key is read from environment variables and is never printed by the CLI.
+- 真实 client 调用 OpenAI-compatible chat completions endpoint。
+- CLI 启动时会自动加载项目根目录下的 `.env`。
+- 模型输出 JSON action，本地 Parser 解析 action。
+- Runtime 通过 `ToolRegistry` 执行工具，保存 session，并写 trace。
+- `--verbose` 只打印 compact 的 tool_call、tool_result、final_answer 和 error，不打印完整 `llm_output`。
 
-## 3. Session Isolation Demo
+## 4. session 隔离演示
 
-Open two terminals.
+打开两个终端。
 
-Terminal A:
+窗口 1：
 
 ```powershell
 python main.py --user demo_user --session window_1 --llm real --verbose
 ```
 
-Terminal B:
+窗口 2：
 
 ```powershell
 python main.py --user demo_user --session window_2 --llm real --verbose
 ```
 
-Add different todo items in each session.
+分别添加不同待办，然后回到窗口 1 查询待办。
 
-Say:
+录屏时说明：
 
-- Session state is keyed by `user_id + session_id`.
-- `window_1` and `window_2` write separate JSON files under `data/sessions`.
-- Todo is currently session-aware inside `AgentRuntime`; later it can be generalized through a `ToolContext`.
+- session state 以 `user_id + session_id` 隔离。
+- `window_1` 和 `window_2` 会写入不同的 session JSON 文件。
+- todo 在 Runtime 内部是 session-aware 的，不会互相污染。
 
-## 4. Trace File Demo
+## 5. trace 日志展示
 
-After a run, inspect:
+运行：
 
 ```powershell
 python scripts/show_trace.py --user demo_user --session real_window --limit 20
 ```
 
-Expected event types include:
+预期能看到这些事件类型：
 
 - `user_message`
 - `llm_output`
@@ -98,52 +124,40 @@ Expected event types include:
 - `tool_call`
 - `tool_result`
 - `final_answer`
+- `fallback_final`
 - `error`
 
-Say:
+录屏时说明：
 
-- The trace is JSONL, one event per line.
-- Trace logging is observational and separate from session state.
-- It is useful for debugging model output, parser decisions, tool execution, and failure handling.
+- trace 是 JSONL，一行一个事件。
+- trace 用于调试和审计，不直接塞进 LLM context。
+- 完整 `llm_output` 可以通过 trace 查看，CLI verbose 模式只展示简化事件。
 
-## 5. Session File Demo
+## 6. session 文件展示
 
-Inspect:
+运行：
 
 ```powershell
 python scripts/show_session.py --user demo_user --session real_window
 ```
 
-Say:
+录屏时说明：
 
-- The session file contains user messages, assistant messages, tool messages, tool results, todos, summary, and timestamps.
-- This is local JSON persistence for the MVP.
-- It is not a production database or concurrent storage layer.
+- session 文件包含 user message、assistant message、tool message、tool results、todos、summary 和时间戳。
+- 这是 MVP 的本地 JSON 持久化，不是生产级数据库。
+- 当前没有跨进程写锁，生产环境需要 session-level queue 或 lock。
 
-## 6. Test Demo
+## 7. context 压缩演示
 
-Run:
-
-```powershell
-D:\Anaconda\python.exe -m pytest -p no:cacheprovider
-```
-
-Say:
-
-- The normal test suite does not call a real LLM.
-- Runtime behavior is tested with fake or mocked clients.
-- E2E tests cover calculator, todo, session isolation, trace, max steps, parser errors, and tool errors.
-
-## 7. Context Compression Demo
-
-Run:
+运行：
 
 ```powershell
 python scripts/demo_compress.py --user demo_user --session compress_window
 python scripts/show_session.py --user demo_user --session compress_window
 ```
 
-Say:
+录屏时说明：
 
-- Context compression is rule based in this MVP.
-- It summarizes older messages, keeps recent messages, and preserves todos and tool results.
+- context 压缩是规则型基础实现。
+- 旧消息会被压缩进 summary。
+- 最近消息、todos 和 tool results 会保留，用于支持追问。

@@ -2,24 +2,24 @@
 
 从零实现的最小可用 Agent Runtime，不依赖 LangGraph / OpenHands / OpenClaw 等现有 Agent 框架完成主流程。
 
-Choose a language / 选择语言：
+语言版本：
 
-- [中文](README.zh-CN.md)
-- [English](README.en.md)
+- [中文说明](README.zh-CN.md)
+- [English README](README.en.md)
 
-## Core Abilities
+## 核心能力
 
-- OpenAI-compatible real LLM API
-- Tool Schema registry
-- calculator / weather / todo / search tools
+- OpenAI-compatible 真实 LLM API
+- Tool Schema 注册机制
+- calculator / weather / todo / search 工具
 - Agent Runtime loop
-- `user_id + session_id` session isolation
-- context compression
-- trace execution logs
-- FakeLLM tests
+- `user_id + session_id` 级 session 隔离
+- context 压缩
+- trace 执行日志
+- FakeLLM 测试
 - pytest 104 passed
 
-## Demo Video
+## 演示视频
 
 - pytest 全量测试通过：104 passed
 - 真实 LLM 调用 calculator 工具
@@ -27,46 +27,45 @@ Choose a language / 选择语言：
 - session 隔离演示
 - context 压缩演示
 - trace 日志记录与展示
-- GitHub Release: [Releases](https://github.com/CodeRunnner/mini-agent-runtime/releases)
+- GitHub Release：[Releases](https://github.com/CodeRunnner/mini-agent-runtime/releases)
 
-## Quick Start
+## 快速开始
 
-Install:
+安装依赖：
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-Copy `.env.example` to `.env` and fill in your OpenAI-compatible provider values.
-Do not commit real API keys.
+复制 `.env.example` 为 `.env`，填写自己的 OpenAI-compatible provider 配置。不要提交真实 API key。
 
-Run real LLM mode:
+真实 LLM 模式：
 
 ```powershell
 python main.py --user alice --session window_1 --llm real --verbose
 ```
 
-Run fake offline mode:
+离线 fake 模式：
 
 ```powershell
 python main.py --user alice --session window_1 --llm fake
 ```
 
-Run tests:
+运行测试：
 
 ```powershell
 D:\Anaconda\python.exe -m pytest -p no:cacheprovider
 ```
 
-## Documentation
+## 文档
 
-- [Demo Script](docs/demo_script.md)
-- [Architecture Answers](docs/architecture_answers.md)
-- [AI Prompt Log](docs/ai_prompt_log.md)
+- [录屏脚本](docs/demo_script.md)
+- [架构设计回答](docs/architecture_answers.md)
+- [AI 辅助开发记录](docs/ai_prompt_log.md)
 
-## Current Boundaries
+## 当前边界
 
-- search and weather are mock tools.
-- JSON session and trace storage are local-file based.
-- Context compression is rule based and intentionally lightweight.
-- The runtime uses a local JSON action protocol instead of provider-side function calling.
+- search 和 weather 是 mock 工具。
+- session 和 trace 使用本地 JSON / JSONL 文件保存。
+- context 压缩是规则型基础实现。
+- Runtime 使用本地 JSON action 协议，没有把核心流程交给 provider-side function calling。
