@@ -1,226 +1,159 @@
 # 架构设计回答
 
-这部分是我对 Agent Runtime 架构题的回答。回答不是按“生产级大系统”去吹，而是基于这个项目当前 MVP 的实现来说明：现在做到了什么、为什么这样做、后续如果扩展应该往哪里加。
-
----
+这部分是我基于这个项目的实际实现做的架构回答。我没有把答案写成一个很大的生产级系统方案，而是按我这次真正做过的内容来回答：当前 MVP 怎么做，为什么这么取舍，如果继续往后扩展，应该补在哪一层。
 
 ## 1. 如果用户连续聊 200 轮，怎么管理 context？
 
-如果用户连续聊 200 轮，肯定不能把所有历史消息原样塞回 LLM。  
-这样不仅 token 成本高，响应慢，而且很容易超过上下文窗口。更麻烦的是，太多旧消息还可能干扰模型判断。
+如果用户连续聊 200 轮，我肯定不会把所有历史消息都原样塞回 LLM。这样做看起来简单，但实际问题很多：token 成本会越来越高，响应会变慢，也可能超过上下文窗口。更麻烦的是，太多旧消息会干扰模型判断，模型不一定知道当前最重要的上下文是什么。
 
-所以我这里的设计不是“全量塞历史”，而是分层管理 context。
+所以我这个项目里没有做“全量历史回放”，而是做了一个分层 context。
 
-当前项目里 session 会完整保存到本地 JSON，但每一轮真正发给 LLM 的内容，是由 `ContextBuilder` 控制的，主要包括：
+完整 session 会保存在本地 JSON 里，但每一轮真正发给 LLM 的内容由 `ContextBuilder` 控制。大致分成几类：
 
-- system prompt：约束模型只能输出项目定义的 JSON action；
-- tool schemas：告诉模型当前有哪些工具可以调用；
-- session summary：保存旧对话压缩后的稳定信息；
+- system prompt：约束模型按本项目的 JSON action 协议输出；
+- tool schemas：告诉模型有哪些工具可以调用；
+- summary：保存较早历史压缩后的稳定信息；
 - structured state：比如当前 session 的 todos；
-- recent messages：只保留最近几条原始消息，默认 8 条；
-- recent tool results：只保留最近几个工具结果，默认 3 个。
+- recent messages：只保留最近几条原始消息；
+- recent tool results：只保留最近几个重要工具结果。
 
-当消息数量超过阈值时，`BasicContextCompressor` 会把较旧的消息压缩进 `session_state.summary`，然后只保留最近消息。
+我这里比较重视 structured state。比如 todo 这种东西，如果只靠自然语言历史保存，很容易在压缩后丢掉或者被模型理解错。所以 todo 是单独存在 session state 里的，不只是存在聊天记录里。
 
-这个设计的核心思路是：
+当消息数量超过阈值后，`BasicContextCompressor` 会把旧消息压进 summary，然后只保留最近消息。录屏里我用 `demo_compress.py` 模拟长对话，再用 `show_session.py` 看结果：summary 有内容，message_count 被压到 8，todos 和 tool_results 还在。
+
+这个方案不是最复杂的，但对 MVP 来说够清楚：旧消息进 summary，最近消息保留原文，关键状态结构化保存，工具结果保留近期重要结果。
+
+如果后面要做得更强，可以加向量召回或者按任务类型做 memory retrieval。但我这次没有直接上向量库，因为当前题目更重要的是先把 Runtime 主链路跑通，而不是一开始就堆复杂组件。
+
+## 2. memory 什么时候召回，放在 context 的什么位置？
+
+我这次做的是 session 级 memory，不是全局长期记忆。也就是说，memory 是跟 `user_id + session_id` 绑定的。这样可以解决同一个用户多个窗口的问题，比如 `alice/window_1` 和 `alice/window_2` 不会互相污染。
+
+每一轮 Runtime 开始时，会先加载当前 session，然后由 `ContextBuilder` 决定哪些内容放进 context。
+
+我放入 context 的顺序大概是：
+
+1. system prompt；
+2. tool schemas；
+3. session summary；
+4. structured state，比如 todos；
+5. recent tool results；
+6. recent messages；
+7. 当前用户输入。
+
+这样排是有原因的。system prompt 和工具 schema 要靠前，因为它们决定模型输出格式和可调用工具。summary 和 structured state 也要靠前，因为它们是当前 session 的稳定状态。recent messages 和 recent tool results 放后面，用来支持短期追问。
+
+比如用户问：
 
 ```text
-旧消息进入 summary
-最近消息保留原文
-结构化状态单独保存
-工具结果只保留关键近期结果
-
-这样即使聊到 200 轮，Runtime 也不会把 200 轮全部丢进 prompt，但用户目标、待办事项、重要工具结果和近期上下文还可以保留下来。
-
-在录屏里我用 scripts/demo_compress.py 模拟长对话，然后用 scripts/show_session.py 展示压缩后的结果。可以看到 summary 有内容，message_count 变成 8，同时 todos 和 tool_results 没丢。
-
-2. memory 什么时候召回，放在 context 的什么位置？
-
-我这里没有做全局长期记忆，也没有上向量数据库。当前 MVP 主要做的是 session 级 memory。
-
-每一轮 Runtime 开始时，会先根据：
-
-user_id + session_id
-
-加载对应的 session。然后 ContextBuilder.build_messages() 决定哪些 memory 要进入这轮 context。
-
-召回的内容主要有几类：
-
-session summary
-
-用来保存被压缩的旧上下文，比如用户之前的目标、未完成事项、重要工具结果。
-
-structured state
-
-比如 todos。这个不能只放在自然语言历史里，因为 todo 是明确状态，应该结构化保存。
-
-recent messages
-
-用来支持“刚才说了什么”“继续上一个问题”这类短期追问。
-
-recent tool results
-
-用来支持工具链后续推理，比如刚查过天气，下一轮用户问“刚才北京天气怎么样”。
-
-放入 context 的顺序大致是：
-
-system prompt
-→ tool schemas
-→ session summary
-→ structured state
-→ recent tool results
-→ recent messages
-→ current user input
-
-这里我特意没有把 trace 放进 context。
-trace 是给开发者调试和审计用的，不应该污染模型的判断。
-
-完整 chain-of-thought 也不保存。项目里只允许模型输出一个简短 reason 字段，用于调试，不存完整推理过程。
-
-举个例子，用户问：
-
 刚才北京天气怎么样？我明早要做什么？
+```
 
-Runtime 会把当前 session 里的 weather 工具结果、todo 状态和最近对话放进 context。模型就能回答：北京天气是多云、22°C，明早需要根据天气决定是否带伞。
+这句话本身没有完整信息。如果没有 memory，模型只能瞎猜。但当前 session 里有 weather 工具结果，也有 todo 状态，所以 Runtime 会把这些放进 context，模型就能回答：北京天气多云，22°C，明早需要根据天气决定是否带伞。
 
-3. 每天早上 9 点自动复盘任务怎么实现？
+我没有把 trace 放进 context。trace 是给开发者看的，不是给模型继续推理用的。如果把 trace 全塞进去，模型反而会被日志干扰。
 
-当前项目是 MVP，没有内置 scheduler。
-如果要做每天早上 9 点自动复盘，我不会把定时逻辑硬塞进 Agent Runtime 里，而是会在 Runtime 外面加一个 scheduler。
+我也没有保存完整 chain-of-thought。项目里只保留一个简短 `reason` 字段，用来调试模型为什么调用某个工具。完整推理过程不进入 session，也不进入 trace。
 
-原因是：
-scheduler 负责“什么时候触发”，Runtime 负责“触发后怎么推理、怎么调工具、怎么写 session 和 trace”。这两个职责最好分开。
+## 3. 如果要每天早上 9 点自动复盘，怎么实现？
 
-一个比较清楚的流程是：
+这个功能我不会直接塞进 Agent Runtime 里面。Runtime 应该负责“收到一次输入后怎么推理、怎么调用工具、怎么保存状态”，而不是负责“每天几点触发”。
 
-Windows Task Scheduler / cron / GitHub Actions / 后端任务队列
-→ 每天 9 点触发脚本
-→ 脚本指定 user_id 和 session_id
-→ 构造一条固定用户输入
-→ 调用 AgentRuntime
-→ Runtime 正常构建 context、调用 LLM、必要时调工具
-→ 保存复盘结果
-→ 写 trace
+所以如果要做每天 9 点自动复盘，我会在 Runtime 外面加一个 scheduler。
 
-比如可以有一个脚本：
+流程可以是：
 
-python scripts/daily_review.py --user alice --session daily_review
+1. Windows Task Scheduler、cron、GitHub Actions 或后端任务队列每天 9 点触发；
+2. 调用一个脚本，比如 `scripts/daily_review.py`；
+3. 脚本指定 `user_id` 和 `session_id`；
+4. 构造一条固定输入，比如“请根据昨天的待办和重要工具结果生成今日复盘”；
+5. 然后交给 `AgentRuntime` 正常执行；
+6. Runtime 继续负责 context、LLM、工具调用、session 保存和 trace。
 
-它构造的输入可以是：
+这样做的好处是职责比较干净：scheduler 只负责时间，Runtime 只负责 Agent 执行。
 
-请根据昨天的待办、重要工具结果和当前 session summary，生成今日早间复盘。
+如果把定时逻辑也塞进 Runtime，后面会很乱：聊天入口、定时入口、任务队列入口全混在一起，不好测，也不好扩展。
 
-这样做的好处是，自动任务和普通聊天复用同一套 Runtime。
-todo、summary、tool_results、trace 都不需要重新设计。
+如果后面真的做生产级版本，我还会补几个点：
 
-如果做得更完整一点，还要考虑：
+- 每天任务有唯一 `task_id`，避免重复执行；
+- LLM 或工具失败要写 error trace；
+- 自动复盘结果写入固定 session，比如 `daily_review`；
+- 用户当天打开聊天时，可以继续追问这次复盘内容。
 
-每天任务要有唯一 task_id，避免重复执行；
-LLM 或工具失败要写 error trace；
-自动任务结果要保存到固定 session；
-如果用户当天打开聊天窗口，也能追问这次复盘内容。
+当前 MVP 没有实现 scheduler，但这个扩展点是清楚的。它应该作为 Runtime 外层入口，而不是改 Runtime 主循环。
 
-当前 MVP 还没实现 daily scheduler，但这个扩展点是清楚的。
-
-4. session 正在执行工具调用时，又来了新消息怎么办？
+## 4. session 正在执行工具调用时，又来了新消息怎么办？
 
 这个问题本质上是并发和状态一致性问题。
 
-如果同一个 session 里，前一个请求还在跑工具，后一个用户消息又进来了，不能让两个 Runtime loop 同时写同一个 session 文件。否则可能出现：
+如果同一个 session 里，前一个请求还在执行工具，后一个消息又进来了，不能让两个 Runtime loop 同时写同一个 session。否则可能出现消息顺序乱了、todo 被重复添加、工具结果覆盖、trace 对不上。
 
-消息顺序错乱；
-todo 重复添加；
-工具结果覆盖；
-trace 对不上；
-session 状态被写坏。
+当前项目是本地 JSON 文件的 MVP，主要用于单进程演示和笔试验证。我不会说它已经支持生产级并发写，这个不真实。
 
-我当前这个项目是本地 JSON 文件 MVP，适合单进程演示和笔试验证，没有声称支持生产级并发写。但如果要扩展，我会在 Runtime 外层加 session-level coordination。
-
-核心策略是：
-
-以 user_id + session_id 为 key 加锁或排队
+如果要扩展，我会在 Runtime 外层加 session-level lock 或 queue。粒度就是 `user_id + session_id`。
 
 也就是说：
 
-alice/window_1 同一时间只允许一个 Runtime loop 写；
-如果 window_1 正在 busy，新的消息进入 pending queue；
-当前 turn 完成后，再按顺序处理下一条消息；
-不同 session，比如 alice/window_1 和 alice/window_2，可以并发，因为它们状态隔离。
+- `alice/window_1` 同一时间只能有一个 Runtime loop 在写；
+- 如果 `window_1` 正在执行，新消息先进入 pending queue；
+- 当前 turn 完成后，再处理下一条；
+- 但 `alice/window_1` 和 `alice/window_2` 可以并发，因为它们是两个不同 session。
 
-流程大概是：
+大致流程是：
 
-收到 user message
-→ 获取 session lock
-→ append message
-→ 执行 AgentRuntime loop
-→ 写入 tool_results / assistant answer / trace
-→ 释放 session lock
-→ 处理 pending message
+```text
+收到用户消息
+-> 获取 session lock
+-> 写入 user message
+-> 执行 Runtime loop
+-> 保存 tool_result / final_answer / trace
+-> 释放 lock
+-> 处理 pending message
+```
 
-如果工具调用超时，Runtime 要写 error trace，并把 session 状态恢复成 idle，避免 session 永久卡死。
+如果工具调用超时，Runtime 要写 error trace，并把 session 状态恢复成 idle，不能让 session 永远卡在 running。
 
-当前项目里已经有 status 字段，可以作为后续扩展 busy/running/idle 的落点。
-这个 MVP 现在重点是把 Runtime 主链路做清楚，而不是假装已经解决了生产级并发。
+当前项目里已经有 `status` 字段，可以作为后续扩展 busy/running/idle 的落点。这个点我不会过度包装，目前就是 MVP，但扩展方向是明确的。
 
-5. Claude Code / OpenHands 和 OpenAI-compatible function calling 有什么区别？
+## 5. Claude Code / OpenHands 和 OpenAI-compatible function calling 有什么区别？
 
-我理解这几个东西不在一个层级。
+我理解它们不是同一个层级的东西。
 
-Claude Code、OpenHands 更像完整的软件开发 Agent 产品或框架。它们通常不只是“调用工具”，还会包含：
+OpenAI-compatible function calling 更像一种模型 API 协议。它解决的是：模型怎么用结构化方式告诉外部系统“我要调用哪个工具，参数是什么”。
 
-读写文件；
-搜索代码；
-执行 shell 命令；
-修改项目；
-多步任务规划；
-人机确认；
-运行环境管理；
-更复杂的安全边界。
+但 function calling 本身不是完整 Agent Runtime。它不负责：
 
-而 OpenAI-compatible function calling 更像是一种模型 API 的工具调用协议。
-它解决的是：模型如何用结构化方式表达“我要调用哪个工具，参数是什么”。
+- session 怎么保存；
+- context 怎么压缩；
+- 工具结果怎么进入下一轮；
+- 多工具 loop 怎么控制；
+- trace 怎么记录；
+- 工具失败怎么恢复；
+- 多 session 怎么隔离。
 
-比如模型可能返回：
+这些还是 Runtime 层要做的事情。
 
-{
-  "tool_name": "calculator",
-  "arguments": {
-    "expression": "23 * 17 + 5"
-  }
-}
+Claude Code、OpenHands 这类东西更像完整的软件开发 Agent 产品或框架。它们通常不只是 tool call，而是会集成文件读写、代码搜索、shell 执行、项目修改、多步规划、人机确认和运行环境管理。
 
-但 function calling 本身不等于完整 Agent Runtime。它通常不会自动帮你解决：
+本项目做的是中间这一层：最小可用 Agent Runtime。
 
-session 怎么保存；
-context 怎么压缩；
-工具结果怎么进入下一轮；
-多工具 loop 怎么控制；
-trace 怎么记录；
-失败怎么恢复；
-多 session 怎么隔离。
+我没有使用 LangGraph、OpenHands、OpenClaw 这类现成框架来接管主流程，也没有依赖 provider-side function calling。我的做法是把 tool schemas 注入 context，让模型输出本项目定义的 JSON action，然后 Parser 把它转成 `ToolCallAction` 或 `FinalAnswerAction`，最后 Runtime 查 `ToolRegistry` 执行工具。
 
-这些还是需要 Runtime 层自己处理。
+这样做的好处是透明。虽然功能不如成熟框架多，但能清楚看到 Agent Runtime 的关键部件是怎么工作的：
 
-本项目做的就是这个中间层：
-不依赖 LangGraph、OpenHands、OpenClaw 这类现成框架，而是自己实现一个最小 Agent Runtime。
+- `LLMClient`
+- `Parser`
+- `ToolRegistry`
+- `AgentRuntime`
+- `SessionStore`
+- `ContextBuilder`
+- `TraceLogger`
 
-当前项目没有使用 provider-side function calling，而是把 tool schemas 注入 context，让模型输出本地 JSON action，再由 Parser 转成 ToolCallAction 或 FinalAnswerAction，最后 Runtime 查 ToolRegistry 执行工具。
+如果以后要接 provider-side function calling，也可以把 provider 返回的 tool calls 转换成项目内部的 `ToolCallAction`，Runtime 主循环仍然可以复用。
 
-这样做的好处是透明：
-我能清楚展示 Agent Runtime 的几个关键部件是怎么协作的：
+所以我会这样总结：
 
-LLMClient
-Parser
-ToolRegistry
-AgentRuntime
-SessionStore
-ContextBuilder
-TraceLogger
-
-如果后续要接 OpenAI-compatible function calling，也可以把 provider 返回的 tool calls 转换成项目内部的 ToolCallAction，Runtime 主循环仍然可以复用。
-
-所以简单说：
-
-function calling 是模型和工具之间的调用协议；
-Claude Code / OpenHands 是完整的软件开发 Agent 系统；
-本项目是自己实现一个最小 Agent Runtime，用来展示中间这层怎么工作。
+- function calling 是工具调用协议；
+- Claude Code / OpenHands 是完整软件开发 Agent；
+- 这个项目是我自己实现的最小 Agent Runtime，用来展示中间这层的机制。
