@@ -1,6 +1,6 @@
 # Mini Agent Runtime
 
-[English](README.en.md) | [中文](README.zh-CN.md)
+[中文](README.md) | [English](README.en.md)
 
 `mini-agent-runtime` is a minimal usable Agent Runtime implemented from scratch.
 It does not rely on LangGraph / OpenHands / OpenClaw or other existing Agent frameworks to run the core flow.

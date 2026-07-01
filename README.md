@@ -4,7 +4,6 @@
 
 语言版本：
 
-- [中文说明](README.zh-CN.md)
 - [English README](README.en.md)
 
 ## 核心能力
