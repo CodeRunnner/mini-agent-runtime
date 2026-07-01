@@ -59,7 +59,6 @@ D:\Anaconda\python.exe -m pytest -p no:cacheprovider
 
 ## 文档
 
-- [录屏脚本](docs/demo_script.md)
 - [架构设计回答](docs/architecture_answers.md)
 - [AI 辅助开发记录](docs/ai_prompt_log.md)
 
