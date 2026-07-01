@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+.venv/
+.vscode/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+mini_agent_runtime.egg-info/
+
+data/
+
+*.log
