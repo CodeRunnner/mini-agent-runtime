@@ -95,6 +95,65 @@ def test_calculator_tool_path_then_final(tmp_path: Path) -> None:
     assert "final_answer" in event_types
 
 
+def test_calculator_tool_then_short_plain_text_uses_fallback_final(tmp_path: Path) -> None:
+    runtime, _fake_llm, session_store, trace_logger = _runtime(
+        tmp_path,
+        [
+            _tool_call("calculator", {"expression": "40 + 48"}),
+            "88",
+        ],
+    )
+
+    answer = runtime.run_turn("user_1", "main", "calculate 40 + 48")
+    session = session_store.load("user_1", "main")
+    events = trace_logger.read_events()
+    event_types = [event.event_type for event in events]
+    fallback = [event for event in events if event.event_type == "fallback_final"][0]
+
+    assert answer == "88"
+    assert session.messages[-1].role == "assistant"
+    assert session.messages[-1].content == "88"
+    assert session.tool_results[0].result == {"ok": True, "result": 88}
+    assert "fallback_final" in event_types
+    assert "final_answer" in event_types
+    assert not [event for event in events if event.event_type == "error"]
+    assert fallback.payload == {
+        "raw_output": "88",
+        "reason": "parse failed after a successful tool result; treating short raw output as final answer",
+    }
+
+
+def test_json_like_tool_intent_does_not_use_fallback_final(tmp_path: Path) -> None:
+    runtime, _fake_llm, session_store, trace_logger = _runtime(
+        tmp_path,
+        [
+            _tool_call("weather", {"city": "Beijing"}),
+            json.dumps(
+                {
+                    "type": "todo",
+                    "reason": "Add requested reminder.",
+                    "action": "add",
+                    "text": "bring umbrella",
+                }
+            ),
+            _final("Weather checked and todo added."),
+        ],
+    )
+
+    answer = runtime.run_turn("user_1", "main", "check weather and add todo")
+    session = session_store.load("user_1", "main")
+    events = trace_logger.read_events()
+    event_types = [event.event_type for event in events]
+
+    assert answer == "Weather checked and todo added."
+    assert session.tool_results[0].tool_name == "weather"
+    assert session.tool_results[1].tool_name == "todo"
+    assert session.todos == [{"id": 1, "text": "bring umbrella", "done": False}]
+    assert "fallback_final" not in event_types
+    assert event_types.count("tool_call") == 2
+    assert event_types.count("tool_result") == 2
+
+
 def test_multi_step_weather_todo_then_final(tmp_path: Path) -> None:
     runtime, _fake_llm, session_store, trace_logger = _runtime(
         tmp_path,

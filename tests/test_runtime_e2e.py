@@ -105,6 +105,37 @@ def test_e2e_fake_todo_add_list_flow(tmp_path: Path) -> None:
     assert [event.event_type for event in events].count("tool_result") == 2
 
 
+def test_e2e_weather_then_type_todo_compatibility_path(tmp_path: Path) -> None:
+    runtime, session_store, trace_logger = _runtime(
+        tmp_path,
+        [
+            _tool("weather", {"city": "Beijing"}),
+            json.dumps(
+                {
+                    "type": "todo",
+                    "reason": "Add todo after checking weather.",
+                    "action": "add",
+                    "text": "decide whether to bring umbrella at 9am",
+                }
+            ),
+            _final("Weather checked and todo added."),
+        ],
+    )
+
+    answer = runtime.run_turn("user_a", "window_1", "check weather and add a todo")
+    session = session_store.load("user_a", "window_1")
+    event_types = [event.event_type for event in trace_logger.read_events()]
+
+    assert answer == "Weather checked and todo added."
+    assert session.tool_results[0].tool_name == "weather"
+    assert session.tool_results[1].tool_name == "todo"
+    assert session.todos == [
+        {"id": 1, "text": "decide whether to bring umbrella at 9am", "done": False}
+    ]
+    assert "fallback_final" not in event_types
+    assert event_types.count("tool_call") == 2
+
+
 def test_e2e_same_user_window_sessions_are_isolated(tmp_path: Path) -> None:
     session_store = JsonSessionStore(tmp_path / "data" / "sessions")
     trace_logger = JsonTraceLogger(tmp_path / "data" / "traces" / "trace.jsonl")

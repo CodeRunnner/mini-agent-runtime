@@ -79,6 +79,8 @@ class AgentRuntime:
             self.session_store.save(session_state)
 
         tool_schemas = self.tool_registry.schemas()
+        tool_names = {str(schema["name"]) for schema in tool_schemas if "name" in schema}
+        successful_tool_result_seen = False
         for step in range(1, self.config.max_steps + 1):
             messages = self.context_builder.build_messages(session_state, tool_schemas)
 
@@ -91,8 +93,29 @@ class AgentRuntime:
 
             parse_started = perf_counter()
             try:
-                action = self.parser.parse(raw_output)
+                action = self.parser.parse(raw_output, tool_names=tool_names)
             except ParseError as exc:
+                if _can_use_fallback_final(raw_output, successful_tool_result_seen):
+                    answer = raw_output.strip()
+                    self.trace_logger.log_event(
+                        TraceEvent(
+                            user_id=user_id,
+                            session_id=session_id,
+                            step=step,
+                            event_type="fallback_final",
+                            payload={
+                                "raw_output": raw_output,
+                                "reason": "parse failed after a successful tool result; treating short raw output as final answer",
+                            },
+                        )
+                    )
+                    session_state = self.session_store.append_message(
+                        user_id, session_id, "assistant", answer
+                    )
+                    self.trace_logger.log_final_answer(user_id, session_id, step, answer)
+                    self.session_store.save(session_state)
+                    return answer
+
                 error_message = f"Runtime error: failed to parse LLM output: {exc}"
                 self.trace_logger.log_error(
                     user_id,
@@ -131,6 +154,7 @@ class AgentRuntime:
                 self.session_store.save(session_state)
                 if _is_error_result(result):
                     continue
+                successful_tool_result_seen = True
                 continue
 
             error_message = f"Runtime error: unsupported action: {type(action).__name__}"
@@ -262,3 +286,15 @@ def _elapsed_ms(started: float) -> float:
 
 def _is_error_result(result: Any) -> bool:
     return isinstance(result, dict) and result.get("ok") is False
+
+
+def _can_use_fallback_final(raw_output: str, successful_tool_result_seen: bool) -> bool:
+    if not successful_tool_result_seen:
+        return False
+    stripped = raw_output.strip()
+    if not stripped or len(stripped) > 200:
+        return False
+    if stripped.startswith(("{", "[")):
+        return False
+    lowered = stripped.casefold()
+    return not any(field in lowered for field in ('"type"', '"tool_name"', '"action"'))

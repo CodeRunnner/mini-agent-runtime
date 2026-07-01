@@ -168,6 +168,11 @@ def test_system_prompt_requires_json_and_short_reason() -> None:
     assert '"final"' in system_prompt
     assert "reason is only a short debugging explanation" in system_prompt
     assert "do not output full chain-of-thought" in system_prompt
+    assert "raw numbers" in system_prompt
+    assert "Even if the final answer is only a number" in system_prompt
+    assert "multiple tasks" in system_prompt
+    assert '"type":"tool_call","tool_name":"todo"' in system_prompt
+    assert '{"type":"todo","action":"add","text":"..."}' in system_prompt
 
 
 def test_estimate_context_size_counts_strings_and_messages() -> None:

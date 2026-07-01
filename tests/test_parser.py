@@ -132,3 +132,30 @@ def test_reason_defaults_to_empty_string() -> None:
 
     assert isinstance(action, ToolCallAction)
     assert action.reason == ""
+
+
+def test_tool_name_in_type_is_parsed_as_tool_call_when_registered() -> None:
+    action = parse_llm_output(
+        json.dumps(
+            {
+                "type": "todo",
+                "reason": "Add the requested todo.",
+                "action": "add",
+                "text": "bring umbrella",
+            }
+        ),
+        tool_names={"todo", "weather", "calculator"},
+    )
+
+    assert isinstance(action, ToolCallAction)
+    assert action.tool_name == "todo"
+    assert action.reason == "Add the requested todo."
+    assert action.arguments == {"action": "add", "text": "bring umbrella"}
+
+
+def test_missing_type_with_todo_action_is_inferred_as_todo_tool_call() -> None:
+    action = parse_llm_output(json.dumps({"action": "list"}))
+
+    assert isinstance(action, ToolCallAction)
+    assert action.tool_name == "todo"
+    assert action.arguments == {"action": "list"}

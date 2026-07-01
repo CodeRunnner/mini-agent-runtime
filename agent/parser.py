@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from collections.abc import Iterable
 from typing import Any
+
+
+TODO_ACTIONS = {"add", "list", "done"}
 
 
 class ParseError(ValueError):
@@ -36,11 +40,12 @@ class FinalAnswerAction(AgentAction):
     answer: str = ""
 
 
-def parse_llm_output(raw: str) -> AgentAction:
+def parse_llm_output(raw: str, tool_names: Iterable[str] | None = None) -> AgentAction:
     """Parse raw LLM output into a structured action."""
     data = _extract_first_json_object(raw)
     action_type = data.get("type")
     reason = _parse_reason(data)
+    known_tool_names = {str(name) for name in tool_names or ()}
 
     if action_type == "tool_call":
         tool_name = data.get("tool_name")
@@ -53,6 +58,14 @@ def parse_llm_output(raw: str) -> AgentAction:
 
         return ToolCallAction(reason=reason, tool_name=tool_name, arguments=arguments)
 
+    if isinstance(action_type, str) and action_type in known_tool_names:
+        arguments = {
+            key: value
+            for key, value in data.items()
+            if key not in {"type", "reason"}
+        }
+        return ToolCallAction(reason=reason, tool_name=action_type, arguments=arguments)
+
     if action_type == "final":
         answer = data.get("answer")
         if not isinstance(answer, str) or not answer.strip():
@@ -61,6 +74,9 @@ def parse_llm_output(raw: str) -> AgentAction:
         return FinalAnswerAction(reason=reason, answer=answer)
 
     if action_type is None:
+        inferred_todo_action = data.get("action")
+        if isinstance(inferred_todo_action, str) and inferred_todo_action in TODO_ACTIONS:
+            return ToolCallAction(reason=reason, tool_name="todo", arguments=data)
         raise ParseError("action requires a type field")
     raise ParseError(f"unknown action type: {action_type}")
 
@@ -104,6 +120,8 @@ def _json_object_start_positions(raw: str) -> list[int]:
 class ResponseParser:
     """Compatibility wrapper for future runtime integration."""
 
-    def parse(self, response: str) -> AgentAction:
+    def parse(
+        self, response: str, tool_names: Iterable[str] | None = None
+    ) -> AgentAction:
         """Parse a model response into a runtime action."""
-        return parse_llm_output(response)
+        return parse_llm_output(response, tool_names=tool_names)

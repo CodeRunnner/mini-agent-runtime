@@ -15,7 +15,7 @@ Core abilities:
 - context compression
 - trace execution logs
 - FakeLLM tests
-- pytest 97 passed
+- pytest 104 passed
 
 ## What Is Implemented
 
@@ -118,6 +118,12 @@ Fake offline mode:
 
 ```bash
 python main.py --user user_a --session window_1 --llm fake
+```
+
+Verbose demo mode:
+
+```bash
+python main.py --user user_a --session window_1 --llm real --verbose
 ```
 
 The older `--fake` flag is still supported as an alias for `--llm fake`.

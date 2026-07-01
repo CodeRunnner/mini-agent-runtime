@@ -37,7 +37,7 @@ notepad .env
 Run:
 
 ```powershell
-python main.py --user demo_user --session real_window --llm real
+python main.py --user demo_user --session real_window --llm real --verbose
 ```
 
 Try prompts such as:
@@ -55,6 +55,7 @@ Say:
 - The CLI loads `.env` from the project root before constructing the client.
 - The model must return JSON actions.
 - The runtime parses those actions, executes local tools through `ToolRegistry`, stores session state, and writes trace events.
+- `--verbose` prints compact tool calls, tool results, final answers, and errors without dumping full LLM output.
 - The API key is read from environment variables and is never printed by the CLI.
 
 ## 3. Session Isolation Demo
@@ -64,13 +65,13 @@ Open two terminals.
 Terminal A:
 
 ```powershell
-python main.py --user demo_user --session window_1 --llm real
+python main.py --user demo_user --session window_1 --llm real --verbose
 ```
 
 Terminal B:
 
 ```powershell
-python main.py --user demo_user --session window_2 --llm real
+python main.py --user demo_user --session window_2 --llm real --verbose
 ```
 
 Add different todo items in each session.

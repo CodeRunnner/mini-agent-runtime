@@ -14,7 +14,7 @@
 - context 压缩
 - trace 执行日志
 - FakeLLM 测试
-- pytest 97 passed
+- pytest 104 passed
 
 ## 已实现功能
 
@@ -112,6 +112,12 @@ mini-agent-runtime --user user_a --session window_1
 
 ```bash
 python main.py --user user_a --session window_1 --llm fake
+```
+
+录屏 verbose 模式：
+
+```bash
+python main.py --user user_a --session window_1 --llm real --verbose
 ```
 
 旧的 `--fake` 参数仍然可用，等价于 `--llm fake`。
